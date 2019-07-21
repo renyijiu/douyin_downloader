@@ -211,7 +211,7 @@ class CrawlerScheduler(object):
     def __init__(self, items):
         self.user_ids = []
         for i in range(len(items)):
-            url = items[i]
+            url = self._get_real_user_link(items[i])
             if not url:
                 continue
             number = re.findall(r'/share/user/(\d+)', url)
@@ -262,6 +262,22 @@ class CrawlerScheduler(object):
         if has_more and max_cursor and (max_cursor != cursor):
             self.push_download_job(user_id, dytk, max_cursor)
 
+    def _get_real_user_link(self, url):
+        """从分享链接获取用户首页地址
+
+        @param: url 抖音分享的用户首页链接
+        @return: url 真实的用户首页链接
+        """
+
+        if url.find('v.douyin.com') < 0:
+            return url
+        session = HTMLSession()
+        res = session.get(url, headers=MOBIE_HEADERS, allow_redirects=False)
+        if res.status_code == 302:
+            user_url = res.headers['Location']
+            return user_url
+        return None
+
 if __name__ == "__main__": 
-    urls_list = ['https://www.iesdouyin.com/share/user/75581824493']
-    CrawlerScheduler(urls_list)
+    url_list = ['http://v.douyin.com/BWVXAk/']
+    CrawlerScheduler(url_list)
