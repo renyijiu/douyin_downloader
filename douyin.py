@@ -6,6 +6,9 @@ import re
 import time
 from random import randrange
 from requests_html import HTMLSession
+from threading import Thread
+from six.moves import queue as Queue
+
 from local_file_adapter import LocalFileAdapter
 
 MOBIE_HEADERS = {
@@ -18,14 +21,14 @@ MOBIE_HEADERS = {
         'cookie': '_ga=GA1.2.314211590.1562984162; tt_webid=6713786420811007495; _ba=BA0.2-20180421-5199e-J3qZPuhUDlMGLoEPpFeC; _gid=GA1.2.1866932789.1563518446'
 }
 
-# 获取用户首页信息
-user_info_url = 'https://www.iesdouyin.com/share/user/'
-# 获取用户视频列表信息
-post_list_url = 'https://www.iesdouyin.com/web/api/v2/aweme/post/'
+# 线程数
+THREADS = 10
+
+# 重试次数
+RETRY = 3
+
 # 固定签名
-freeze_signature = None
-# 构建请求
-session = HTMLSession()
+FREEZE_SIGNATURE = None
 
 def get_user_info(user_id):
     """获取用户的uid和dytk信息
@@ -34,7 +37,9 @@ def get_user_info(user_id):
     @return [uid, dytk]
     """
 
-    r = session.get(user_info_url + str(user_id), headers=MOBIE_HEADERS)
+    base_url = 'https://www.iesdouyin.com/share/user/'
+    session = HTMLSession()
+    r = session.get(base_url + str(user_id), headers=MOBIE_HEADERS)
     uid = r.html.search('uid: "{uid}"')['uid']
     dytk = r.html.search("dytk: '{dytk}'")['dytk']
     return [uid, dytk]
@@ -46,6 +51,7 @@ def get_signature(user_id):
     @return: signature
     """
     
+    session = HTMLSession()    
     signature_url = 'file://' + os.getcwd() + os.sep +'signature.html?user_id=' + str(user_id)
     session.mount("file://", LocalFileAdapter())
     r = session.get(signature_url, headers=MOBIE_HEADERS)
@@ -62,14 +68,15 @@ def get_list_by_uid(user_id, dytk, cursor=0):
     @return json
     """
     
-    global freeze_signature
-    '''读取数据文件'''
+    global FREEZE_SIGNATURE
+    '''读取数据文件,若存在则直接返回'''
     file_result = load_from_json_file(user_id, cursor)
     if file_result:
         return file_result
-    
+
+    post_list_url = 'https://www.iesdouyin.com/web/api/v2/aweme/post/'
     '''获取签名'''
-    signature = freeze_signature if freeze_signature else get_signature(user_id)
+    signature = FREEZE_SIGNATURE if FREEZE_SIGNATURE else get_signature(user_id)
     headers = {
         **MOBIE_HEADERS,
         'x-requested-with': 'XMLHttpRequest',
@@ -84,66 +91,63 @@ def get_list_by_uid(user_id, dytk, cursor=0):
         '_signature': signature,
         'dytk': dytk
     }
+    session = HTMLSession()
     while True:
         r = session.get(post_list_url, params=params, headers=headers)
         res_json = json.loads(r.html.text)
         if res_json.get('max_cursor', None):
-            freeze_signature = signature
+            FREEZE_SIGNATURE = signature
             save_json_data(user_id, cursor, res_json)
             return res_json
         print("get empty list, " + str(res_json))
-        time.sleep(randrange(1, 5))
+        time.sleep(1)
         print('retry...')
-
-def download_video(user_id, dytk, cursor=0):
-    """下载用户的所有视频
-
-    @param: user_id
-    @param: dytk
-    @param: cursor 分页游标
-    @return None
-    """
-
-    list_json = get_list_by_uid(user_id, dytk, cursor)
-    for aweme in list_json.get('aweme_list', []):
-        download_url_list = aweme.get('video', {}).get('download_addr', {}).get('url_list', [])
-        video_id = aweme.get('statistics', {}).get('aweme_id', None)
-        save_video(download_url_list, user_id, video_id)
-
-    has_more = list_json.get('has_more', False)
-    max_cursor = list_json.get('max_cursor', None)
-    if has_more and max_cursor and (max_cursor != cursor):
-        download_video(user_id, dytk, max_cursor)
         
-def save_video(url_list, user_id, video_name):
+def save_user_video(url, user_id, video_id):
     """保存视频至当前video目录下对应的用户名目录
 
-    @param: url_list
+    @param: url
     @param: user_id
     @param: video_name
     @return None
     """
-
-    if len(url_list) == 0:
-        raise Exception("can not get the url list")
-    url = url_list[randrange(len(url_list))]
+    
     if url is None:
-        raise Exception("can not get download url")
+        print('Error: can not get the download url!')
+        return
     floder = os.path.join(os.getcwd(), 'video', user_id)
     if not os.path.exists(floder):
-        os.mkdir(floder)
-    video_path = os.path.join(floder, video_name + '.mp4')
+        try:
+            os.mkdir(floder)
+        except:
+            pass
+    video_path = os.path.join(floder, video_id + '.mp4')
     if not os.path.exists(video_path):
         url = custom_format_download_url(url)
         print('start to download the video, url: ' + url)
-        res = session.get(url, headers=MOBIE_HEADERS)
-        if res.status_code == 200:
-            with open(video_path, "wb") as fp:
-                for chunk in res.iter_content(chunk_size=1024):
-                    fp.write(chunk)
-            print('save video success, path: ' + video_path)
-        else:  
-            raise Exception("request to download video error")
+
+        retry_times = 0
+        session = HTMLSession()
+        while retry_times < RETRY:
+            try:
+                res = session.get(url, headers=MOBIE_HEADERS)
+                if res.status_code == 200:
+                    with open(video_path, "wb") as fp:
+                        for chunk in res.iter_content(chunk_size=1024):
+                            fp.write(chunk)
+                    print('save video success, path: ' + video_path)
+                    break
+                else:  
+                    raise Exception('request to download the video error, url' + url)
+            except:
+                pass 
+            retry_times += 1
+        else:
+            try:
+                os.remove(video_path)
+            except OSError:
+                pass
+            print('Failed to download the video, url: ' + url)
     else:
         print("video already downloaded, skip!")
         pass
@@ -152,6 +156,7 @@ def custom_format_download_url(url):
     """自定义替换下载链接中的部分参数
     
     @param: url download_url
+    @return url
     """
 
     url = url.replace('watermark=1', 'watermark=0')
@@ -172,7 +177,7 @@ def save_json_data(user_id, cursor, data):
     file_path = os.path.join(os.getcwd(), 'data', file_name)
     with open(file_path, 'w+', encoding='utf-8') as fb:
         json.dump(data, fb, ensure_ascii=False)
-    print("data save success")
+    print("list data save success!")
 
 def load_from_json_file(user_id, cursor):
     """检查对应的data数据，查看是否已存在对应记录数据
@@ -190,8 +195,73 @@ def load_from_json_file(user_id, cursor):
         return json.loads(data)
     return None
 
-if __name__ == "__main__": 
-    user_id = 110677980134
+class DownloadWorker(Thread):
+    def __init__(self, queue):
+        Thread.__init__(self)
+        self.queue = queue
 
-    uid, dytk = get_user_info(user_id)
-    download_video(uid, dytk)
+    def run(self):
+        while True:
+            url, user_id, video_id = self.queue.get()
+            save_user_video(url, user_id, video_id)
+            self.queue.task_done()
+
+class CrawlerScheduler(object):
+
+    def __init__(self, items):
+        self.user_ids = []
+        for i in range(len(items)):
+            url = items[i]
+            if not url:
+                continue
+            number = re.findall(r'/share/user/(\d+)', url)
+            if not len(number):
+                continue
+            self.user_ids.append(number[0])
+        self.queue = Queue.Queue()
+        self.scheduling()
+
+    def scheduling(self):
+        for _ in range(THREADS):
+            worker = DownloadWorker(self.queue)
+            worker.daemon = True
+            worker.start()
+
+        for user_id in self.user_ids:
+            self.download_user_videos(user_id)
+        self.queue.join()
+
+    def download_user_videos(self, user_id):
+        """下载用户所有视频
+
+        @param: user_id
+        @return
+        """
+
+        uid, dytk = get_user_info(user_id)
+        self.push_download_job(uid, dytk)
+        
+    def push_download_job(self, user_id, dytk, cursor=0):
+        """推送下载任务至队列
+
+        @param: user_id
+        @param: dytk
+        @param: 分页游标
+        @return
+        """
+
+        list_json = get_list_by_uid(user_id, dytk, cursor)
+        for aweme in list_json.get('aweme_list', []):
+            download_url_list = aweme.get('video', {}).get('download_addr', {}).get('url_list', [])
+            video_id = aweme.get('statistics', {}).get('aweme_id', None)
+            url = download_url_list[randrange(len(download_url_list))]
+            self.queue.put((url, user_id, video_id))
+
+        has_more = list_json.get('has_more', False)
+        max_cursor = list_json.get('max_cursor', None)
+        if has_more and max_cursor and (max_cursor != cursor):
+            self.push_download_job(user_id, dytk, max_cursor)
+
+if __name__ == "__main__": 
+    urls_list = ['https://www.iesdouyin.com/share/user/75581824493']
+    CrawlerScheduler(urls_list)
