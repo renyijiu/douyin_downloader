@@ -160,7 +160,7 @@ def custom_format_download_url(url):
     """
 
     url = url.replace('watermark=1', 'watermark=0')
-    ratio = re.compile('ratio=(\d+)p')
+    ratio = re.compile(r'ratio=(\d+)p')
     url = ratio.sub('ratio=720p', url)
     return url
 
