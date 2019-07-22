@@ -4,6 +4,8 @@ import os
 import json
 import re
 import time
+import getopt
+import sys
 from random import randrange
 from requests_html import HTMLSession
 from threading import Thread
@@ -278,6 +280,58 @@ class CrawlerScheduler(object):
             return user_url
         return None
 
+
+def usage():
+    print("1. Please make sure folder data/ and video/ is exist under this same diectory.\n"
+          "2. Please create file share-url.txt under this same directory.\n"
+          "3. In share-url.txt, you can specify one amemv share page url one line. Accept multiple lines of text\n"
+          "4. Save the file and retry.\n"
+          "5. Or use command line options:\nSample: python douyin.py --urls url1,url2\n\n")
+    print("1. 请确保在当前目录下，存在data和video文件夹。\n"
+          "2. 请确保当前目录下存在share-url.txt文件。\n"
+          "3. 请在文件中指定抖音分享页面URL，一行一个链接，支持多行.\n"
+          "4. 保存文件并重试.\n"
+          "5. 或者直接使用命令行参数指定链接\n例子: python douyin.py --urls url1,url2")
+
+def get_file_content(filename):
+    if os.path.exists(filename):
+        return parse_sites(filename)
+    else:
+        usage()
+        sys.exit(1)
+
+def parse_sites(filename):
+    urls = []
+    with open(filename, 'r') as f:
+        for line in f:
+            url = line.strip()
+            if url:
+                urls.append(url)
+    return urls
+
 if __name__ == "__main__": 
-    url_list = ['http://v.douyin.com/BWVXAk/']
-    CrawlerScheduler(url_list)
+    content, opts, args = None, None, []
+
+    try:
+        opts, args = getopt.getopt(sys.argv[1:], "hu:f:", ["help", "urls=", "filename="])
+    except getopt.GetoptError:
+        usage()
+        sys.exit(2)
+
+    for opt, arg in opts:
+        if opt in ('-u', '--urls'):
+            content = arg.split(',')
+        elif opt in ('-f', '--filename'):
+            content = get_file_content(arg)
+        elif opt in ('-h', '--help'):
+            usage()
+            sys.exit()
+    
+    if not content:
+        content = get_file_content('share-url.txt')
+    
+    if len(content) < 1 or content[0] == '':
+        usage()
+        sys.exit(1)
+
+    CrawlerScheduler(content)
