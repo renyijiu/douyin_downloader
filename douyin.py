@@ -6,10 +6,10 @@ import re
 import time
 import getopt
 import sys
+import queue as Queue
 from random import randrange
 from requests_html import HTMLSession
 from threading import Thread
-from six.moves import queue as Queue
 
 from local_file_adapter import LocalFileAdapter
 
@@ -19,8 +19,7 @@ MOBIE_HEADERS = {
         'cache-control': 'max-age=0',
         'upgrade-insecure-requests': '1',
         'dnt': '1',
-        'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 11_0 like Mac OS X) AppleWebKit/604.1.38 (KHTML, like Gecko) Version/11.0 Mobile/15A372 Safari/604.1',
-        'cookie': '_ga=GA1.2.314211590.1562984162; tt_webid=6713786420811007495; _ba=BA0.2-20180421-5199e-J3qZPuhUDlMGLoEPpFeC; _gid=GA1.2.1866932789.1563518446'
+        'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 11_0 like Mac OS X) AppleWebKit/604.1.38 (KHTML, like Gecko) Version/11.0 Mobile/15A372 Safari/604.1'
 }
 
 # 线程数
@@ -31,6 +30,12 @@ RETRY = 3
 
 # 固定签名
 FREEZE_SIGNATURE = None
+
+# 用户视频列表地址
+POST_LIST_URL = 'https://www.iesdouyin.com/web/api/v2/aweme/post/'
+
+# 用户收藏视频地址
+LIKE_LIST_URL = 'https://www.iesdouyin.com/web/api/v2/aweme/like/'
 
 def get_user_info(user_id):
     """获取用户的uid和dytk信息
@@ -61,7 +66,7 @@ def get_signature(user_id):
     sign = r.html.find('#signature', first=True)
     return sign.text
 
-def get_list_by_uid(user_id, dytk, cursor=0):
+def get_list_by_uid(user_id, dytk, cursor=0, favorite=False):
     """获取用户视频列表信息
 
     @param: user_id
@@ -72,11 +77,15 @@ def get_list_by_uid(user_id, dytk, cursor=0):
     
     global FREEZE_SIGNATURE
     '''读取数据文件,若存在则直接返回'''
-    file_result = load_from_json_file(user_id, cursor)
+    file_result = load_from_json_file(user_id, cursor, favorite)
     if file_result:
         return file_result
 
-    post_list_url = 'https://www.iesdouyin.com/web/api/v2/aweme/post/'
+    if favorite:
+        url = LIKE_LIST_URL
+    else:
+        url = POST_LIST_URL    
+    
     '''获取签名'''
     signature = FREEZE_SIGNATURE if FREEZE_SIGNATURE else get_signature(user_id)
     headers = {
@@ -95,35 +104,39 @@ def get_list_by_uid(user_id, dytk, cursor=0):
     }
     session = HTMLSession()
     while True:
-        r = session.get(post_list_url, params=params, headers=headers)
+        r = session.get(url, params=params, headers=headers)
+        if r.status_code != 200:
+            print(r)
+            continue
         res_json = json.loads(r.html.text)
         if res_json.get('max_cursor', None):
             FREEZE_SIGNATURE = signature
-            save_json_data(user_id, cursor, res_json)
+            save_json_data(user_id, cursor, res_json, favorite)
             return res_json
         print("get empty list, " + str(res_json))
         time.sleep(1)
         print('retry...')
         
-def save_user_video(url, user_id, video_id):
+def save_user_video(url, user_id, video_id, favorite=False):
     """保存视频至当前video目录下对应的用户名目录
 
     @param: url
     @param: user_id
-    @param: video_name
+    @param: video_id
+    @param: favorite 是否是收藏视频
     @return None
     """
     
     if url is None:
         print('Error: can not get the download url!')
         return
-    floder = os.path.join(os.getcwd(), 'video', user_id)
-    if not os.path.exists(floder):
-        try:
-            os.mkdir(floder)
-        except:
-            pass
-    video_path = os.path.join(floder, video_id + '.mp4')
+    
+    if favorite:
+        folder, video_name = get_user_favorite_video_info(user_id, video_id)
+    else:
+        folder, video_name = get_user_own_video_info(user_id, video_id)
+    video_path = os.path.join(folder, video_name)
+    
     if not os.path.exists(video_path):
         url = custom_format_download_url(url)
         print('start to download the video, url: ' + url)
@@ -166,36 +179,113 @@ def custom_format_download_url(url):
     url = ratio.sub('ratio=720p', url)
     return url
 
-def save_json_data(user_id, cursor, data):
+def save_json_data(user_id, cursor, data, favorite=False):
     """保存用户视频列表的json数据
 
     @param: user_id
     @param: cursor
     @param: data json
+    @param: favorite 是否是收藏视频
     @return None
     """
+    if favorite:
+        folder, file_name = get_user_favorite_data_info(user_id, cursor)
+    else:
+        folder, file_name = get_user_own_data_info(user_id, cursor)
 
-    file_name = str(user_id) + '-' + str(cursor) + '.json'
-    file_path = os.path.join(os.getcwd(), 'data', file_name)
+    file_path = os.path.join(folder, file_name)
     with open(file_path, 'w+', encoding='utf-8') as fb:
         json.dump(data, fb, ensure_ascii=False)
     print("list data save success!")
 
-def load_from_json_file(user_id, cursor):
+def load_from_json_file(user_id, cursor, favorite=False):
     """检查对应的data数据，查看是否已存在对应记录数据
 
     @param: user_id
     @param: cursor
+    @param: favorite 是否是收藏视频
     @return json
     """
 
-    file_name = str(user_id) + '-' + str(cursor) + '.json'
-    file_path = os.path.join(os.getcwd(), 'data', file_name)
+    if favorite:
+        folder, file_name = get_user_favorite_data_info(user_id, cursor)
+    else:
+        folder, file_name = get_user_own_data_info(user_id, cursor)
+
+    file_path = os.path.join(folder, file_name)
     if os.path.exists(file_path):
         with open(file_path, 'r') as f:
             data = f.read()
         return json.loads(data)
     return None
+
+def get_user_own_data_info(user_id, cursor):
+    """获取用户视频数据的地址信息
+
+    @param: user_id
+    @cursor: 分页游标
+    @return: （target_folder, file_name）
+    """
+
+    file_name = str(user_id) + '-' + str(cursor) + '.json'
+    folder = os.path.join(os.getcwd(), 'data')
+    try:
+        if not os.path.isdir(folder):
+            os.mkdir(folder)
+    except:
+        pass
+    return (folder, file_name)
+
+def get_user_favorite_data_info(user_id, cursor):
+    """获取用户收藏视频数据的地址信息
+
+    @param: user_id
+    @cursor: 分页游标
+    @return: （target_folder, file_name）
+    """
+
+    file_name = str(user_id) + '-favorite-' + str(cursor) + '.json'
+    folder = os.path.join(os.getcwd(), 'data')
+    try:
+        if not os.path.isdir(folder):
+            os.mkdir(folder)
+    except:
+        pass
+    return (folder, file_name)
+
+def get_user_own_video_info(user_id, video_id):
+    """获取用户自己视频的地址信息
+
+    @param: user_id
+    @param: video_id
+    @return: （target_folder, file_name）
+    """
+
+    file_name = str(video_id) + '.mp4'
+    folder = os.path.join(os.getcwd(), 'video', str(user_id))
+    try:
+        if not os.path.isdir(folder):
+            os.mkdir(folder)
+    except:
+        pass
+    return (folder, file_name)
+
+def get_user_favorite_video_info(user_id, video_id):
+    """获取用户收藏视频的地址信息
+
+    @param: user_id
+    @param: video_id
+    @return: （target_folder, file_name）
+    """
+
+    file_name = str(video_id) + '.mp4'
+    folder = os.path.join(os.getcwd(), 'video', 'favorite', str(user_id))
+    try:
+        if not os.path.isdir(folder):
+            os.mkdir(folder)
+    except:
+        pass
+    return (folder, file_name)
 
 class DownloadWorker(Thread):
     def __init__(self, queue):
@@ -204,13 +294,13 @@ class DownloadWorker(Thread):
 
     def run(self):
         while True:
-            url, user_id, video_id = self.queue.get()
-            save_user_video(url, user_id, video_id)
+            url, user_id, video_id, favorite = self.queue.get()
+            save_user_video(url, user_id, video_id, favorite)
             self.queue.task_done()
 
 class CrawlerScheduler(object):
 
-    def __init__(self, items):
+    def __init__(self, items, favorite=False):
         self.user_ids = []
         for i in range(len(items)):
             url = self._get_real_user_link(items[i])
@@ -221,29 +311,30 @@ class CrawlerScheduler(object):
                 continue
             self.user_ids.append(number[0])
         self.queue = Queue.Queue()
-        self.scheduling()
+        self.scheduling(favorite)
 
-    def scheduling(self):
+    def scheduling(self, favorite=False):
         for _ in range(THREADS):
             worker = DownloadWorker(self.queue)
             worker.daemon = True
             worker.start()
 
         for user_id in self.user_ids:
-            self.download_user_videos(user_id)
+            self.download_user_videos(user_id, favorite)
         self.queue.join()
 
-    def download_user_videos(self, user_id):
+    def download_user_videos(self, user_id, favorite=False):
         """下载用户所有视频
 
         @param: user_id
+        @param: favorite
         @return
         """
 
         uid, dytk = get_user_info(user_id)
-        self.push_download_job(uid, dytk)
+        self.push_download_job(uid, dytk, 0, favorite)
         
-    def push_download_job(self, user_id, dytk, cursor=0):
+    def push_download_job(self, user_id, dytk, cursor=0, favorite=False):
         """推送下载任务至队列
 
         @param: user_id
@@ -252,17 +343,17 @@ class CrawlerScheduler(object):
         @return
         """
 
-        list_json = get_list_by_uid(user_id, dytk, cursor)
+        list_json = get_list_by_uid(user_id, dytk, cursor, favorite)
         for aweme in list_json.get('aweme_list', []):
             download_url_list = aweme.get('video', {}).get('download_addr', {}).get('url_list', [])
             video_id = aweme.get('statistics', {}).get('aweme_id', None)
             url = download_url_list[randrange(len(download_url_list))]
-            self.queue.put((url, user_id, video_id))
+            self.queue.put((url, user_id, video_id, favorite))
 
         has_more = list_json.get('has_more', False)
         max_cursor = list_json.get('max_cursor', None)
         if has_more and max_cursor and (max_cursor != cursor):
-            self.push_download_job(user_id, dytk, max_cursor)
+            self.push_download_job(user_id, dytk, max_cursor, favorite)
 
     def _get_real_user_link(self, url):
         """从分享链接获取用户首页地址
@@ -310,10 +401,10 @@ def parse_sites(filename):
     return urls
 
 if __name__ == "__main__": 
-    content, opts, args = None, None, []
+    favorite, content, opts, args = False, None, None, []
 
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "hu:f:", ["help", "urls=", "filename="])
+        opts, args = getopt.getopt(sys.argv[1:], "hlu:f:", ["help", "like", "urls=", "filename="])
     except getopt.GetoptError:
         usage()
         sys.exit(2)
@@ -323,6 +414,8 @@ if __name__ == "__main__":
             content = arg.split(',')
         elif opt in ('-f', '--filename'):
             content = get_file_content(arg)
+        elif opt in ('-l', '--like'):
+            favorite = True
         elif opt in ('-h', '--help'):
             usage()
             sys.exit()
@@ -334,4 +427,4 @@ if __name__ == "__main__":
         usage()
         sys.exit(1)
 
-    CrawlerScheduler(content)
+    CrawlerScheduler(content, favorite)

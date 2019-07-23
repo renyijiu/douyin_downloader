@@ -2,7 +2,10 @@
 __pycache__/*
 data/*
 video/*
+video/favorite/*
 douyin
 
 !data/README.md
 !video/README.md
+!video/favorite/
+!video/favorite/README.md
