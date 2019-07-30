@@ -31,6 +31,9 @@ RETRY = 3
 # 固定签名
 FREEZE_SIGNATURE = None
 
+# 用户主页链接
+USER_HOME_URL = 'https://www.iesdouyin.com/share/user/'
+
 # 用户视频列表地址
 POST_LIST_URL = 'https://www.iesdouyin.com/web/api/v2/aweme/post/'
 
@@ -44,9 +47,8 @@ def get_user_info(user_id):
     @return [uid, dytk]
     """
 
-    base_url = 'https://www.iesdouyin.com/share/user/'
     session = HTMLSession()
-    r = session.get(base_url + str(user_id), headers=MOBIE_HEADERS)
+    r = session.get(USER_HOME_URL + str(user_id), headers=MOBIE_HEADERS)
     uid = r.html.search('uid: "{uid}"')['uid']
     dytk = r.html.search("dytk: '{dytk}'")['dytk']
     return [uid, dytk]
@@ -306,6 +308,8 @@ class CrawlerScheduler(object):
             url = self._get_real_user_link(items[i])
             if not url:
                 continue
+            if url.find('/share/video/') > 0:
+                url = self._get_user_link_from_video(url)
             number = re.findall(r'/share/user/(\d+)', url)
             if not len(number):
                 continue
@@ -370,6 +374,20 @@ class CrawlerScheduler(object):
             user_url = res.headers['Location']
             return user_url
         return None
+
+    def _get_user_link_from_video(self, url):
+        """从分享的单个视频链接获取用户信息
+        
+        @param: url 抖音单个视频链接
+        @return: url 真实的用户首页链接
+        """
+
+        if url.find('/share/video/') < 0:
+            return url
+        session = HTMLSession()
+        video_res = session.get(url, headers=MOBIE_HEADERS)
+        uid = video_res.html.search('uid: "{uid}"')['uid']
+        return USER_HOME_URL + str(uid)
 
 
 def usage():

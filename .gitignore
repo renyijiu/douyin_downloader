@@ -4,6 +4,9 @@ data/*
 video/*
 video/favorite/*
 douyin
+.vscode/*
+common/__pycache__
+tmp/face/*
 
 !data/README.md
 !video/README.md
