@@ -297,6 +297,10 @@ class DownloadWorker(Thread):
     def run(self):
         while True:
             url, user_id, video_id, favorite = self.queue.get()
+            if url is None:
+                print('exit Thread!')
+                break
+
             save_user_video(url, user_id, video_id, favorite)
             self.queue.task_done()
 
@@ -318,14 +322,20 @@ class CrawlerScheduler(object):
         self.scheduling(favorite)
 
     def scheduling(self, favorite=False):
+        threads = []
         for _ in range(THREADS):
             worker = DownloadWorker(self.queue)
-            worker.daemon = True
             worker.start()
-
+            threads.append(worker)
         for user_id in self.user_ids:
             self.download_user_videos(user_id, favorite)
+ 
         self.queue.join()
+        for _ in range(THREADS):
+            self.queue.put((None, None, None, None))
+        for t in threads:
+            t.join()
+        print("successful downloaded!")
 
     def download_user_videos(self, user_id, favorite=False):
         """下载用户所有视频

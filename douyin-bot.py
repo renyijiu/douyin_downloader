@@ -3,7 +3,7 @@ import sys
 import re
 import random
 import time
-from multiprocessing import Queue, Process
+from multiprocessing import Queue, Pool
 from PIL import Image
 
 from douyin import CrawlerScheduler
@@ -40,7 +40,7 @@ config = config.open_accordant_config()
 BEAUTY_THRESHOLD = 85
 
 # 最小年龄
-GIRL_MIN_AGE = 18
+GIRL_MIN_AGE = 15
 
 # 识别性别: female, male
 GENDER = 'female'
@@ -257,11 +257,11 @@ def download_videos(queue):
 
     while True:
         url = queue.get()
-        if not url:
-            continue
+        if url is None:
+            print("exit process!")
+            break
         print("get url from queue: " + url)
         CrawlerScheduler([url])
-        time.sleep(10)
 
 
 def download_processes(queue):
@@ -269,22 +269,18 @@ def download_processes(queue):
     :return
     """
 
-    for _ in range(PROCESS):
-        proc = Process(target=download_videos, args=(queue,))
-        proc.start()
+    Pool(PROCESS, download_videos, (queue,))
 
 
 if __name__ == '__main__':
     try:
-        # yes_or_no()
-        # main()
         queue = Queue()
 
-        process = Process(target=main, args=(queue,))
-        process.start()
+        # yes_or_no()
+        # main()
 
         download_processes(queue)
-        process.join()
+        main(queue)
     except KeyboardInterrupt:
         adb.run('kill-server')
         print('谢谢使用')
