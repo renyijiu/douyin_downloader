@@ -8,11 +8,13 @@ fake-useragent==0.1.11
 idna==2.8
 lxml==4.3.4
 parse==1.12.0
+Pillow==6.1.0
 pyee==6.0.0
 pyppeteer==0.0.25
 pyquery==1.4.0
 requests==2.22.0
 requests-html==0.10.0
+six==1.12.0
 soupsieve==1.9.2
 tqdm==4.32.2
 urllib3==1.25.3
