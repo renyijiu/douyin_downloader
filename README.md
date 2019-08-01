@@ -1,49 +1,50 @@
-# douyin_downloader
+# 抖音寻找漂亮小姐姐or帅气小哥哥，并下载她（他）们的所有作品
 
-![](./tmp/flower.jpg)
+![](./tmp/douyin.gif)
+![](./tmp/douyin-console.gif)
+
+原本只是写了一个下载抖音无水印视频的小脚本，后面突然想到了[Douyin-Bot](https://github.com/wangshub/Douyin-Bot/blob/master/README.md)这个项目，觉得是可以结合操作的，达到完全自动化，所以就引入了相关的代码，并进行了一定的逻辑修改，实现了目前的流程。
+
+> Python + ADB实现抖音的控制浏览 -> 复制视频链接 -> 提取用户信息 -> 程序下载用户所有视频
 
 
-下载指定用户的所有抖音视频以及用户收藏的视频（无水印）
+### ⏰ 如果你只需要下载功能，可以直接查看 [DOWNLOAD.md](https://github.com/renyijiu/douyin_downloader/blob/master/DOWNLOAD.md)，无需查看后续内容
 
-## 注意⚠️
-
-> Only Python 3.6 is supported.
-
-使用了[requests-html](https://github.com/oldani/requests-html)，而`requests-html`官方介绍只支持`python3.6`
 
 ## 环境安装
 
-```shell
+请在使用项目之前确保你的手机可以正常使用adb控制，相关信息可以网上搜索。**另外复制内容需要使用clipper.apk，在apks中有提供，[项目地址](https://github.com/majido/clipper)，可自行查看，另外 *请允许此app后台运行，自测发现未后台运行会导致获取不到剪贴板内容***
+
+```
 $ git clone git@github.com:renyijiu/douyin_downloader.git
 $ cd douyin_downloader
 $ virtualenv -p python3.6 douyin
 $ source douyin/bin/activate
 $ pip install -r requirements.txt
-
 ```
-
-⚠️ **`requests-html`为了完整支持JavaScript，所以依赖库会从google下载chromium，请确保你的网络可以正常访问google相关网站，让依赖能够顺利下载**
 
 ## 使用
 
-可以执行 `python douyin.py -h` 查看详细说明
+1. 打开抖音app
+2. 执行 python douyin-bot.py
 
-### 文件方式
+## ⚠注意️
+1. 具体Python + ADB实现抖音的控制浏览，可以查看[Douyin-Bot](https://github.com/wangshub/Douyin-Bot/blob/master/README.md)去了解，这里不做介绍了
+2. 目前ADB获取剪贴板操作，通过 [clipper.apk](https://github.com/majido/clipper)实现，如果你有更好的方案，欢迎提出更改，感谢🙏！
+3. 目前提供的配置是基于自己的 *魅族pro5* 测试机，不同机型请自行修改（欢迎提供你的配置）
+- `config.json`配置文件参考：
+    - `center_point`: 屏幕中心点`(x, y)`，区域范围`(rx, ry)`，主要翻页使用
+    - `left_swipe_point`: 起始点坐标`(x, y)`，区域范围`(rx, ry)`，分享按钮时活动获取复制链接使用
+    - `follow_bottom`: 关注按钮坐标`(x, y)`, 区域范围`(rx, ry)`
+    - `star_bottom`: 点赞按钮坐标`(x, y)`，区域范围`(rx, ry)`
+    - `share_bootom`: 分享按钮坐标`(x, y)`，区域范围`(rx, ry)`
+    - `copy_link_bottom`: 复制链接按钮（分享按钮点击后弹出）`(x, y)`，区域范围`(rx, ry)`
+    - `crop_img`: 截图范围起始点坐标`(x, y)`，区域范围`(width, height)`, 从页面截图裁剪部分（为了去除头像之类的干扰信息），另外范围过大可能导致图像过大使接口报错，请自行增加压缩操作
 
-1. 将你所需要的下载链接写到目录下`share-url`文件中，一行一个链接
-2. 执行`python douyin.py`下载用户的所有抖音视频
-3. 执行`python douyin.py -l` 或者 `python douyin.py --like` 下载用户所有收藏的视频
-
-### 命令行模式
-
-1. `python douyin.py --urls=url1,url2,url3`，多个地址使用`,`分割，下载用户所有的视频
-2. `python douyin.py --urls=url1,url2,url3 --like`,下载用户收藏的所有视频
-
-## 结果
-
-1. data目录下保存了请求到的json数据，减少重复请求，另外后续你也可以提取自己所需的信息，例如视频介绍等；格式 video_id - [favorite] - cursor.json
-2. video目录下保存了用户的抖音视频，按照用户id建立对应的文件夹; favorite目录下存放了用户收藏的视频，也是按照用户id建立对应的文件夹
+## 感谢
+站在巨人的肩膀
+1. [Douyin-Bot](https://github.com/wangshub/Douyin-Bot)
+2. [clipper](https://github.com/majido/clipper)
 
 ## 建议反馈
-
 请直接在[Github](https://github.com/renyijiu/douyin_downloader/issues)上开新的issue，描述清楚你的问题需求即可。
