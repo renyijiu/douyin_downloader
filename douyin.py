@@ -40,6 +40,9 @@ POST_LIST_URL = 'https://www.iesdouyin.com/web/api/v2/aweme/post/'
 # 用户收藏视频地址
 LIKE_LIST_URL = 'https://www.iesdouyin.com/web/api/v2/aweme/like/'
 
+# 单视频信息地址
+ITEM_INFO_URL = 'https://www.iesdouyin.com/web/api/v2/aweme/iteminfo/'
+
 def get_user_info(user_id):
     """获取用户的uid和dytk信息
 
@@ -289,6 +292,22 @@ def get_user_favorite_video_info(user_id, video_id):
         pass
     return (folder, file_name)
 
+def get_real_link_from_share_link(url):
+    """从分享链接获取真实跳转地址
+
+    @param: url 抖音分享的链接
+    @return: url 跳转后的链接
+    """
+
+    if url.find('v.douyin.com') < 0:
+        return url
+    session = HTMLSession()
+    res = session.get(url, headers=MOBIE_HEADERS, allow_redirects=False)
+    if res.status_code == 302:
+        new_url = res.headers['Location']
+        return new_url
+    return url
+
 class DownloadWorker(Thread):
     def __init__(self, queue):
         Thread.__init__(self)
@@ -309,7 +328,7 @@ class CrawlerScheduler(object):
     def __init__(self, items, favorite=False):
         self.user_ids = []
         for i in range(len(items)):
-            url = self._get_real_user_link(items[i])
+            url = get_real_link_from_share_link(items[i])
             if not url:
                 continue
             if url.find('/share/video/') > 0:
@@ -369,22 +388,6 @@ class CrawlerScheduler(object):
         if has_more and max_cursor and (max_cursor != cursor):
             self.push_download_job(user_id, dytk, max_cursor, favorite)
 
-    def _get_real_user_link(self, url):
-        """从分享链接获取用户首页地址
-
-        @param: url 抖音分享的用户首页链接
-        @return: url 真实的用户首页链接
-        """
-
-        if url.find('v.douyin.com') < 0:
-            return url
-        session = HTMLSession()
-        res = session.get(url, headers=MOBIE_HEADERS, allow_redirects=False)
-        if res.status_code == 302:
-            user_url = res.headers['Location']
-            return user_url
-        return None
-
     def _get_user_link_from_video(self, url):
         """从分享的单个视频链接获取用户信息
         
@@ -398,6 +401,79 @@ class CrawlerScheduler(object):
         video_res = session.get(url, headers=MOBIE_HEADERS)
         uid = video_res.html.search('uid: "{uid}"')['uid']
         return USER_HOME_URL + str(uid)
+
+
+class SingleCrawlerScheduler(object):
+
+    def __init__(self, items):
+        self.params = []
+        for i in range(len(items)):
+            uid, video_id, dytk = self._get_info_from_video(items[i])
+            if not uid:
+                continue
+            self.params.append((uid, video_id, dytk))
+
+        self.queue = Queue.Queue()
+        self.scheduling()
+
+    def scheduling(self):
+        threads = []
+        for _ in range(THREADS):
+            worker = DownloadWorker(self.queue)
+            worker.start()
+            threads.append(worker)
+        for param in self.params:
+            self._get_download_job(*param)
+        
+        self.queue.join()
+        for _ in range(THREADS):
+            self.queue.put((None, None, None, None))
+        for t in threads:
+            t.join()
+        print("successful downloaded!")
+
+    def _get_info_from_video(self, url):
+        """从分享的单个视频链接获取用户信息
+        
+        @param: url 抖音单个视频链接
+        @return: (uid, video_id, dytk)
+        """
+        url = get_real_link_from_share_link(url)
+        if url is None or url.find('/share/video/') < 0:
+            return (None, None, None)
+        session = HTMLSession()
+        video_res = session.get(url, headers=MOBIE_HEADERS)
+        uid = video_res.html.search('uid: "{uid}"')['uid']
+        video_id = video_res.html.search('itemId: "{video_id}"')['video_id']
+        dytk = video_res.html.search('dytk: "{dytk}"')['dytk']
+        return (uid, video_id, dytk)
+
+    def _get_download_job(self, uid, video_id, dytk):
+        """获取下载任务
+
+        @param: uid
+        @param: video_id
+        @param: dytk
+        @return
+        """
+
+        params = {
+            'item_ids': video_id,
+            'dytk': dytk
+        }
+        session = HTMLSession()
+        r = session.get(ITEM_INFO_URL, params=params, headers=MOBIE_HEADERS)
+        if r.status_code != 200:
+            print(r)
+            return
+        res_json = json.loads(r.html.text)
+        item_list = res_json.get('item_list', [])
+        for item in item_list:
+            urls = item.get('video', {}).get('download_addr', {}).get('url_list', [])
+            if len(urls) < 1:
+                continue
+            download_url = custom_format_download_url(urls[0])
+            self.queue.put((download_url, uid, video_id, False))
 
 
 def usage():
@@ -429,10 +505,10 @@ def parse_sites(filename):
     return urls
 
 if __name__ == "__main__": 
-    favorite, content, opts, args = False, None, None, []
+    favorite, single, content, opts, args = False, False, None, None, []
 
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "hlu:f:", ["help", "like", "urls=", "filename="])
+        opts, args = getopt.getopt(sys.argv[1:], "hlsu:f:", ["help", "like", "single", "urls=", "filename="])
     except getopt.GetoptError:
         usage()
         sys.exit(2)
@@ -444,6 +520,8 @@ if __name__ == "__main__":
             content = get_file_content(arg)
         elif opt in ('-l', '--like'):
             favorite = True
+        elif opt in ('-s', '--single'):
+            single = True
         elif opt in ('-h', '--help'):
             usage()
             sys.exit()
@@ -455,4 +533,7 @@ if __name__ == "__main__":
         usage()
         sys.exit(1)
 
-    CrawlerScheduler(content, favorite)
+    if single:
+        SingleCrawlerScheduler(content)
+    else:
+        CrawlerScheduler(content, favorite)
