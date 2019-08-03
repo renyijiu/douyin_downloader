@@ -3,6 +3,8 @@
 ![](./tmp/douyin.gif)
 ![](./tmp/douyin-console.gif)
 
+## ⚠️ 因为依赖关系，只支持Python3.6且仅在此版本上进行过测试，其他版本无法保证相同效果，欢迎提交PR支持。
+
 原本只是写了一个下载抖音无水印视频的小脚本，后面突然想到了[Douyin-Bot](https://github.com/wangshub/Douyin-Bot/blob/master/README.md)这个项目，觉得是可以结合操作的，达到完全自动化，所以就引入了相关的代码，并进行了一定的逻辑修改，实现了目前的流程。
 
 > Python + ADB实现抖音的控制浏览 -> 复制视频链接 -> 提取用户信息 -> 程序下载用户所有视频
@@ -48,3 +50,6 @@ $ pip install -r requirements.txt
 
 ## 建议反馈
 请直接在[Github](https://github.com/renyijiu/douyin_downloader/issues)上开新的issue，描述清楚你的问题需求即可。
+
+## CHANGELOG
+[changelog](https://github.com/wangshub/Douyin-Bot/blob/master/CHANGELOG.md)
