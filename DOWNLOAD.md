@@ -38,6 +38,7 @@ $ pip install -r requirements.txt
 
 1. `python douyin.py --urls=url1,url2,url3`，多个地址使用`,`分割，下载用户所有的视频
 2. `python douyin.py --urls=url1,url2,url3 --like`,下载用户收藏的所有视频
+3. `python douyin.py -s -u single_video_url`，下载单个分享视频
 
 ## 结果
 

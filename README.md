@@ -53,3 +53,6 @@ $ pip install -r requirements.txt
 
 ## CHANGELOG
 [changelog](https://github.com/wangshub/Douyin-Bot/blob/master/CHANGELOG.md)
+
+## 赞赏
+![](./tmp/reward.png)
