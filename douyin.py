@@ -8,18 +8,31 @@ import getopt
 import sys
 import queue as Queue
 from random import randrange
+from random import randint
 from requests_html import HTMLSession
 from threading import Thread
 
 from local_file_adapter import LocalFileAdapter
 
 MOBIE_HEADERS = {
-        'accept-encoding': 'gzip, deflate, br',
-        'accept-language': 'zh-CN,zh;q=0.9',
-        'cache-control': 'max-age=0',
-        'upgrade-insecure-requests': '1',
-        'dnt': '1',
-        'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 11_0 like Mac OS X) AppleWebKit/604.1.38 (KHTML, like Gecko) Version/11.0 Mobile/15A372 Safari/604.1'
+        'Pragma': 'no-cache',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Cache-Control': 'no-cache',
+        'TE': 'Trailers',
+        'DNT': '1',
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 12_0 like Mac OS X) AppleWebKit/604.1.38 (KHTML, like Gecko) Version/12.0 Mobile/15A372 Safari/604.1'
+}
+
+DOWNLOAD_HEADERS = {
+    'authority': 'aweme.snssdk.com',
+    'method': 'GET',
+    'scheme': 'https',
+    'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+    'accept-encoding': 'gzip, deflate, br',
+    'accept-language': 'zh-CN,zh;q=0.9',
+    'dnt': '1',
+    'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1'
 }
 
 # 线程数
@@ -30,6 +43,9 @@ RETRY = 3
 
 # 固定签名
 FREEZE_SIGNATURE = None
+
+# 视频播放地址
+PLAY_URL = 'https://aweme.snssdk.com/aweme/v1/play/'
 
 # 用户主页链接
 USER_HOME_URL = 'https://www.iesdouyin.com/share/user/'
@@ -43,6 +59,12 @@ LIKE_LIST_URL = 'https://www.iesdouyin.com/web/api/v2/aweme/like/'
 # 单视频信息地址
 ITEM_INFO_URL = 'https://www.iesdouyin.com/web/api/v2/aweme/iteminfo/'
 
+# 分享链接前缀
+SHARE_HOST = 'v.douyin.com'
+
+# 下载链接前缀
+DOWNLOAD_HOST = 'www.iesdouyin.com'
+
 def get_user_info(user_id):
     """获取用户的uid和dytk信息
 
@@ -51,6 +73,7 @@ def get_user_info(user_id):
     """
 
     session = HTMLSession()
+    MOBIE_HEADERS['Host'] = DOWNLOAD_HOST
     r = session.get(USER_HOME_URL + str(user_id), headers=MOBIE_HEADERS)
     uid = r.html.search('uid: "{uid}"')['uid']
     dytk = r.html.search("dytk: '{dytk}'")['dytk']
@@ -94,18 +117,16 @@ def get_list_by_uid(user_id, dytk, cursor=0, favorite=False):
     '''获取签名'''
     signature = FREEZE_SIGNATURE if FREEZE_SIGNATURE else get_signature(user_id)
     headers = {
-        **MOBIE_HEADERS,
+        **DOWNLOAD_HEADERS,
         'x-requested-with': 'XMLHttpRequest',
         'accept': 'application/json'
     }
     params = {
         'user_id': user_id,
-        'sec_uid': None,
-        'count': 21,
+        'count': 30,
         'max_cursor': cursor,
-        'aid': 1128,
+        'app_id': 1128,
         '_signature': signature,
-        'dytk': dytk
     }
     session = HTMLSession()
     while True:
@@ -113,13 +134,14 @@ def get_list_by_uid(user_id, dytk, cursor=0, favorite=False):
         if r.status_code != 200:
             print(r)
             continue
+        r.html.render()
         res_json = json.loads(r.html.text)
         if res_json.get('max_cursor', None):
             FREEZE_SIGNATURE = signature
             save_json_data(user_id, cursor, res_json, favorite)
             return res_json
         print("get empty list, " + str(res_json))
-        time.sleep(1)
+        time.sleep(randint(1, 5))
         print('retry...')
         
 def save_user_video(url, user_id, video_id, favorite=False):
@@ -150,13 +172,16 @@ def save_user_video(url, user_id, video_id, favorite=False):
         session = HTMLSession()
         while retry_times < RETRY:
             try:
-                res = session.get(url, headers=MOBIE_HEADERS)
+                res = session.get(url, headers=DOWNLOAD_HEADERS, allow_redirects = False)
                 if res.status_code == 200:
                     with open(video_path, "wb") as fp:
                         for chunk in res.iter_content(chunk_size=1024):
                             fp.write(chunk)
                     print('save video success, path: ' + video_path)
                     break
+                elif res.status_code == 302:
+                    url = res.headers['location']
+                    raise Exception('url redirects')
                 else:  
                     raise Exception('request to download the video error, url' + url)
             except:
@@ -302,9 +327,11 @@ def get_real_link_from_share_link(url):
     if url.find('v.douyin.com') < 0:
         return url
     session = HTMLSession()
+
+    MOBIE_HEADERS['Host'] = SHARE_HOST
     res = session.get(url, headers=MOBIE_HEADERS, allow_redirects=False)
     if res.status_code == 302:
-        new_url = res.headers['Location']
+        new_url = res.headers['location']
         return new_url
     return url
 
@@ -398,7 +425,7 @@ class CrawlerScheduler(object):
         if url.find('/share/video/') < 0:
             return url
         session = HTMLSession()
-        video_res = session.get(url, headers=MOBIE_HEADERS)
+        video_res = session.get(url, headers=DOWNLOAD_HEADERS)
         uid = video_res.html.search('uid: "{uid}"')['uid']
         return USER_HOME_URL + str(uid)
 
@@ -442,6 +469,7 @@ class SingleCrawlerScheduler(object):
         if url is None or url.find('/share/video/') < 0:
             return (None, None, None)
         session = HTMLSession()
+        MOBIE_HEADERS['Host'] = DOWNLOAD_HOST
         video_res = session.get(url, headers=MOBIE_HEADERS)
         uid = video_res.html.search('uid: "{uid}"')['uid']
         video_id = video_res.html.search('itemId: "{video_id}"')['video_id']
@@ -462,17 +490,21 @@ class SingleCrawlerScheduler(object):
             'dytk': dytk
         }
         session = HTMLSession()
+
+        MOBIE_HEADERS['Host'] = DOWNLOAD_HOST
         r = session.get(ITEM_INFO_URL, params=params, headers=MOBIE_HEADERS)
         if r.status_code != 200:
             print(r)
             return
+        r.html.render()
         res_json = json.loads(r.html.text)
         item_list = res_json.get('item_list', [])
         for item in item_list:
-            urls = item.get('video', {}).get('download_addr', {}).get('url_list', [])
-            if len(urls) < 1:
+            vid = item.get('video', {}).get('vid', None)
+            if vid is None:
                 continue
-            download_url = custom_format_download_url(urls[0])
+            tmp_url = PLAY_URL + '?video_id=' + vid
+            download_url = custom_format_download_url(tmp_url)
             self.queue.put((download_url, uid, video_id, False))
 
 

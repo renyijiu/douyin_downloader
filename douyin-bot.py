@@ -175,7 +175,7 @@ def copy_link():
 
     cmd_get_clipoard = 'shell am broadcast -a clipper.get'
     text = adb.run(cmd_get_clipoard)
-    urls = re.findall(r'(http://v.douyin.com/\w+/)', text)
+    urls = re.findall(r'(https://v.douyin.com/\w+/)', text)
     return urls[0]
 
 
