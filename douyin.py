@@ -72,12 +72,12 @@ def get_user_info(user_id):
     @return [uid, dytk]
     """
 
-    session = HTMLSession()
-    MOBIE_HEADERS['Host'] = DOWNLOAD_HOST
-    r = session.get(USER_HOME_URL + str(user_id), headers=MOBIE_HEADERS)
-    uid = r.html.search('uid: "{uid}"')['uid']
-    dytk = r.html.search("dytk: '{dytk}'")['dytk']
-    return [uid, dytk]
+    with HTMLSession() as session:
+        MOBIE_HEADERS['Host'] = DOWNLOAD_HOST
+        r = session.get(USER_HOME_URL + str(user_id), headers=MOBIE_HEADERS)
+        uid = r.html.search('uid: "{uid}"')['uid']
+        dytk = r.html.search("dytk: '{dytk}'")['dytk']
+        return [uid, dytk]
 
 def get_signature(user_id):
     """获取所需的签名信息
@@ -86,14 +86,14 @@ def get_signature(user_id):
     @return: signature
     """
     
-    session = HTMLSession()    
-    signature_url = 'file://' + os.getcwd() + os.sep +'signature.html?user_id=' + str(user_id)
-    session.mount("file://", LocalFileAdapter())
-    r = session.get(signature_url, headers=MOBIE_HEADERS)
-    r.html.render()
-    sign = r.html.find('#signature', first=True)
-    r.close()
-    return sign.text
+    with HTMLSession() as session:    
+        signature_url = 'file://' + os.getcwd() + os.sep +'signature.html?user_id=' + str(user_id)
+        session.mount("file://", LocalFileAdapter())
+        r = session.get(signature_url, headers=MOBIE_HEADERS)
+        r.html.render()
+        sign = r.html.find('#signature', first=True)
+        r.close()
+        return sign.text
 
 def get_list_by_uid(user_id, dytk, cursor=0, favorite=False):
     """获取用户视频列表信息
@@ -129,22 +129,22 @@ def get_list_by_uid(user_id, dytk, cursor=0, favorite=False):
         'app_id': 1128,
         '_signature': signature,
     }
-    session = HTMLSession()
-    while True:
-        r = session.get(url, params=params, headers=headers)
-        if r.status_code != 200:
-            print(r)
-            continue
-        r.html.render()
-        res_json = json.loads(r.html.text)
-        r.close()
-        if res_json.get('max_cursor', None):
-            FREEZE_SIGNATURE = signature
-            save_json_data(user_id, cursor, res_json, favorite)
-            return res_json
-        print("get empty list, " + str(res_json))
-        time.sleep(randint(1, 5))
-        print('retry...')
+    with HTMLSession() as session:
+        while True:
+            r = session.get(url, params=params, headers=headers)
+            if r.status_code != 200:
+                print(r)
+                continue
+            r.html.render()
+            res_json = json.loads(r.html.text)
+            r.close()
+            if res_json.get('max_cursor', None):
+                FREEZE_SIGNATURE = signature
+                save_json_data(user_id, cursor, res_json, favorite)
+                return res_json
+            print("get empty list, " + str(res_json))
+            time.sleep(randint(1, 5))
+            print('retry...')
         
 def save_user_video(url, user_id, video_id, favorite=False):
     """保存视频至当前video目录下对应的用户名目录
