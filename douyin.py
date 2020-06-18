@@ -92,6 +92,7 @@ def get_signature(user_id):
     r = session.get(signature_url, headers=MOBIE_HEADERS)
     r.html.render()
     sign = r.html.find('#signature', first=True)
+    r.close()
     return sign.text
 
 def get_list_by_uid(user_id, dytk, cursor=0, favorite=False):
@@ -136,6 +137,7 @@ def get_list_by_uid(user_id, dytk, cursor=0, favorite=False):
             continue
         r.html.render()
         res_json = json.loads(r.html.text)
+        r.close()
         if res_json.get('max_cursor', None):
             FREEZE_SIGNATURE = signature
             save_json_data(user_id, cursor, res_json, favorite)
@@ -498,6 +500,7 @@ class SingleCrawlerScheduler(object):
             return
         r.html.render()
         res_json = json.loads(r.html.text)
+        r.close()
         item_list = res_json.get('item_list', [])
         for item in item_list:
             vid = item.get('video', {}).get('vid', None)
