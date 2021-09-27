@@ -6,7 +6,7 @@ chardet==3.0.4
 cssselect==1.0.3
 fake-useragent==0.1.11
 idna==2.8
-lxml==4.3.4
+lxml==4.6.3
 parse==1.12.0
 Pillow>=6.2.2
 pyee==6.0.0
